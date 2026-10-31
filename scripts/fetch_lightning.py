@@ -6,6 +6,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 import boto3
 import numpy as np
@@ -20,6 +21,8 @@ NOW = datetime.now(timezone.utc)
 CUTOFF = NOW - WINDOW
 s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED, retries={"max_attempts": 3}))
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+# HDF5/netCDF4 is not reliably thread-safe: serialize all Dataset access.
+NETCDF_LOCK = Lock()
 
 
 def keys_for_satellite(satellite):
@@ -50,7 +53,7 @@ def read_file(item):
     os.close(fd)
     try:
         s3.download_file(bucket, key, filename)
-        with Dataset(filename) as ds:
+        with NETCDF_LOCK, Dataset(filename) as ds:
             lat = np.asarray(ds.variables["flash_lat"][:])
             lon = np.asarray(ds.variables["flash_lon"][:])
             offset = np.asarray(ds.variables["flash_time_offset_of_first_event"][:])
