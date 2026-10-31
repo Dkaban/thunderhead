@@ -92,8 +92,27 @@ def main():
             seen.add(k)
             unique.append({"lat":flash["lat"],"lon":flash["lon"],"time":flash["time"]})
     OUTPUT.parent.mkdir(parents=True,exist_ok=True)
-    OUTPUT.write_text(json.dumps({"generated_at":NOW.isoformat().replace("+00:00","Z"),"source":"NOAA GOES-18/19 GLM-L2-LCFA","flashes":unique},separators=(",",":")))
-    logging.info("Saved %d approximate flashes",len(unique))
+    # Render aggregated cells rather than individual flashes.
+    cell_size = 0.12
+    bins = {}
+    for flash in unique:
+        timestamp = datetime.fromisoformat(flash["time"].replace("Z", "+00:00"))
+        minute = int(timestamp.timestamp()) // 60
+        lat_cell = int(flash["lat"] // cell_size)
+        lon_cell = int(flash["lon"] // cell_size)
+        key = (lat_cell, lon_cell, minute)
+        bins[key] = bins.get(key, 0) + 1
+    cells = [
+        [round((la + 0.5) * cell_size, 3), round((lo + 0.5) * cell_size, 3), minute, count]
+        for (la, lo, minute), count in sorted(bins.items())
+    ]
+    OUTPUT.write_text(json.dumps({
+        "generated_at": NOW.isoformat().replace("+00:00", "Z"),
+        "source": "NOAA GOES-18/19 GLM-L2-LCFA",
+        "cell_size_deg": cell_size,
+        "cells": cells
+    }, separators=(",", ":")))
+    logging.info("Saved %d flashes in %d compact cells", len(unique), len(cells))
 
 
 if __name__=="__main__":
