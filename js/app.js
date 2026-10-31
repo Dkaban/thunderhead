@@ -43,6 +43,8 @@
 
     const totals = {5: 0, 15: 0, 60: 0};
     const visible = new Map();
+    // Display one 0.5-degree activity marker per area, merging time bins.
+    const displayGrid = 0.5;
 
     for (const [lat, lon, minute, count] of cells) {
       const age = nowMinute - minute;
@@ -52,13 +54,15 @@
       totals[60] += count;
       if (age >= selectedMinutes) continue;
 
-      const key = lat + ':' + lon;
+      const latBin = Math.floor(lat / displayGrid);
+      const lonBin = Math.floor(lon / displayGrid);
+      const key = latBin + ':' + lonBin;
       const previous = visible.get(key);
       if (previous) {
         previous.count += count;
         previous.latest = Math.max(previous.latest, minute);
       } else {
-        visible.set(key, {lat, lon, count, latest: minute});
+        visible.set(key, {lat: (latBin + 0.5) * displayGrid, lon: (lonBin + 0.5) * displayGrid, count, latest: minute});
       }
     }
 
@@ -77,57 +81,28 @@
   }
 
   map.on('load', () => {
-    map.addSource('activity', {
-      type: 'geojson',
-      data: empty,
-      cluster: true,
-      clusterRadius: 55,
-      clusterMaxZoom: 8,
-      clusterProperties: {total: ['+', ['get', 'count']]}
-    });
+    map.addSource('activity', { type: 'geojson', data: empty });
     map.addLayer({
-      id: 'clusters', type: 'circle', source: 'activity', filter: ['has', 'point_count'],
-      paint: {
-        'circle-color': '#338bad',
-        'circle-opacity': 0.76,
-        'circle-radius': ['step', ['get', 'total'], 13, 50, 17, 250, 22, 1000, 29],
-        'circle-stroke-color': '#8fe5ff', 'circle-stroke-width': 1
-      }
-    });
-    map.addLayer({
-      id: 'cluster-labels', type: 'symbol', source: 'activity', filter: ['has', 'point_count'],
-      layout: {'text-field': ['number-format', ['get', 'total'], {'max-fraction-digits': 0}], 'text-size': 11, 'text-allow-overlap': true},
-      paint: {'text-color': '#ffffff'}
-    });
-    map.addLayer({
-      id: 'flash-dots', type: 'circle', source: 'activity', filter: ['!', ['has', 'point_count']],
+      id: 'flash-dots',
+      type: 'circle',
+      source: 'activity',
       paint: {
         'circle-color': ['step', ['get', 'age'], '#71e6ff', 5, '#ffc26d', 15, '#ff7e9b'],
-        'circle-radius': ['interpolate', ['linear'], ['get', 'count'], 1, 2.5, 30, 4, 200, 6.5, 1000, 9],
-        'circle-opacity': 0.86
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 2.5, 7, 5, 11, 7],
+        'circle-opacity': 0.85
       }
-    });
-    map.on('click', 'clusters', e => {
-      const cluster = e.features && e.features[0];
-      if (!cluster) return;
-      const id = cluster.properties.cluster_id;
-      map.getSource('activity').getClusterExpansionZoom(id).then(zoom => {
-        map.easeTo({center: cluster.geometry.coordinates, zoom: Math.min(zoom, 13)});
-      }).catch(console.error);
     });
     map.on('click', 'flash-dots', e => {
       const item = e.features && e.features[0];
       if (!item) return;
-      const count = Number(item.properties.count).toLocaleString();
       new maplibregl.Popup()
         .setLngLat(item.geometry.coordinates)
-        .setText(count + ' approximate flashes in this area over the selected time window')
+        .setText(Number(item.properties.count).toLocaleString() +
+          ' approximate flashes in this area during the selected time window')
         .addTo(map);
     });
-    for (const id of ['clusters', 'flash-dots']) {
-      map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
-    }
+    map.on('mouseenter', 'flash-dots', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'flash-dots', () => { map.getCanvas().style.cursor = ''; });
     render(true);
   });
 
