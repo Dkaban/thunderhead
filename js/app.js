@@ -1,6 +1,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   const status = $('status');
+  const dataAlert = $('data-alert');
   const map = new maplibregl.Map({
     container: 'map',
     style: 'https://tiles.openfreemap.org/styles/dark',
@@ -24,6 +25,46 @@
   let selectedMinutes = 60;
   let version = '';
   let loaded = false;
+  let fetchFailed = false;
+  let fetchInProgress = false;
+  let lastFetchAttempt = 0;
+  const STALE_AFTER_MS = 15 * 60 * 1000;
+
+  function ageLabel(milliseconds) {
+    const minutes = Math.max(0, Math.floor(milliseconds / 60000));
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return minutes + ' min ago';
+    const hours = Math.floor(minutes / 60);
+    return hours + ' hr ' + (minutes % 60) + ' min ago';
+  }
+
+  function showFreshness() {
+    const stamp = generated ? Date.parse(generated) : NaN;
+    const age = Number.isFinite(stamp) ? Math.max(0, Date.now() - stamp) : null;
+    const delayed = age !== null && age > STALE_AFTER_MS;
+
+    if (!loaded) {
+      status.textContent = fetchFailed ? 'NOAA · OFFLINE' : 'Loading observations…';
+    } else if (fetchFailed) {
+      status.textContent = 'NOAA · CHECK FAILED';
+    } else if (age === null) {
+      status.textContent = 'NOAA · NO DATA';
+    } else {
+      status.textContent = (delayed ? 'NOAA · DELAYED ' : 'NOAA · ') + ageLabel(age);
+    }
+
+    if (!dataAlert) return;
+    const warning = fetchFailed
+      ? 'Could not check for fresh NOAA data. Showing the last available dataset.'
+      : age === null
+        ? 'No NOAA dataset is available yet.'
+        : delayed
+          ? 'NOAA data is delayed (last update ' + ageLabel(age) +
+            '). Recent flash counts may be zero because observations have expired. GitHub Actions schedules are not guaranteed.'
+          : '';
+    dataAlert.hidden = !warning;
+    dataAlert.textContent = warning;
+  }
   // Four spatial resolutions, precomputed only when the dataset/time window changes.
   // Moving the map only redraws the already-aggregated cells, keeping mobile smooth.
   const DETAIL_LEVELS = [1.5, 0.5, 0.24, 0.12];
@@ -191,11 +232,25 @@
   });
 
   async function refresh() {
+    if (fetchInProgress) return;
+    fetchInProgress = true;
+    lastFetchAttempt = Date.now();
     try {
-      const slot = Math.floor(Date.now() / 300000);
-      const response = await fetch('data/flashes.json?v=' + slot);
+      // A new URL plus no-store prevents stale Android/browser and CDN cache hits.
+      // Only request the ~1MB dataset on the normal five-minute interval (or tab return).
+      const cacheToken = Math.floor(Date.now() / 60000);
+      const response = await fetch('data/flashes.json?refresh=' + cacheToken, {
+        cache: 'no-store'
+      });
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const data = await response.json();
+      if (!data || (!Array.isArray(data.cells) && !Array.isArray(data.flashes))) {
+        throw new Error('Unexpected NOAA data format');
+      }
+      fetchFailed = false;
+      // Do not replace a newer dataset with an older cached CDN response.
+      if (data.generated_at && generated &&
+          Date.parse(data.generated_at) < Date.parse(generated)) return;
       if (data.generated_at && version === data.generated_at) return;
 
       const next = Array.isArray(data.cells) ? data.cells : compactLegacy(data.flashes || []);
@@ -205,20 +260,28 @@
       generated = data.generated_at || null;
       version = data.generated_at || '';
       loaded = true;
-      status.textContent = generated
-        ? 'NOAA DATA · ' + new Date(generated).toLocaleTimeString()
-        : 'NO DATA YET';
       recompute();
     } catch (error) {
-      status.textContent = 'DATA NOT AVAILABLE';
+      fetchFailed = true;
       console.error('Thunderhead data error:', error);
+    } finally {
+      fetchInProgress = false;
+      showFreshness();
     }
   }
 
   refresh();
   setInterval(refresh, 300000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' &&
+        Date.now() - lastFetchAttempt >= 60000) refresh();
+  });
+  window.addEventListener('pageshow', () => {
+    if (Date.now() - lastFetchAttempt >= 60000) refresh();
+  });
   setInterval(() => {
     const now = Math.floor(Date.now() / 60000);
     if (now !== lastMinute) recompute();
+    showFreshness();
   }, 30000);
 })();
