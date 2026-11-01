@@ -83,12 +83,18 @@
       const b = Math.floor(f.lon / GRID);
       const minute = Math.floor(timestamp / 60000);
       const key = a + ':' + b + ':' + minute;
-      bins.set(key, (bins.get(key) || 0) + 1);
+      let bin = bins.get(key);
+      if (!bin) {
+        bin = {latSum: 0, lonSum: 0, count: 0};
+        bins.set(key, bin);
+      }
+      bin.latSum += f.lat;
+      bin.lonSum += f.lon;
+      bin.count += 1;
     }
-    return Array.from(bins, ([key, count]) => {
-      const [a, b, minute] = key.split(':').map(Number);
-      return [Number(((a + 0.5) * GRID).toFixed(3)),
-              Number(((b + 0.5) * GRID).toFixed(3)), minute, count];
+    return Array.from(bins, ([key, bin]) => {
+      const minute = Number(key.split(':')[2]);
+      return [bin.latSum / bin.count, bin.lonSum / bin.count, minute, bin.count];
     });
   }
 
@@ -115,10 +121,11 @@
         const bins = levelBins.get(grid);
         let bin = bins.get(key);
         if (!bin) {
-          bin = {lat:(la + 0.5) * grid, lon:(lo + 0.5) * grid,
-                 count:0, latest:minute};
+          bin = {latSum: 0, lonSum: 0, count: 0, latest: minute};
           bins.set(key, bin);
         }
+        bin.latSum += lat * count;
+        bin.lonSum += lon * count;
         bin.count += count;
         bin.latest = Math.max(bin.latest, minute);
       }
@@ -127,7 +134,10 @@
     activityByGrid = new Map(DETAIL_LEVELS.map(grid => [
       grid,
       Array.from(levelBins.get(grid).values(), item => ({
-        ...item, age: now - item.latest
+        lat: item.latSum / item.count,
+        lon: item.lonSum / item.count,
+        count: item.count,
+        age: now - item.latest
       }))
     ]));
     for (const n of [5, 15, 60]) {
