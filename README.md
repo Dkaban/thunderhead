@@ -1,28 +1,39 @@
 # ⚡ Thunderhead
 
-Free lightning activity map for North America, powered by NOAA GOES-18 and GOES-19 Geostationary Lightning Mapper (GLM) public data.
+**Follow the storm. See the lightning.**
 
-## Features
-- Dark interactive map with MapLibre and OpenFreeMap
-- Approximate satellite optical flash centroids (not exact ground strikes)
-- 5 / 15 / 60-minute flash counters
-- Responsive mobile layout
-- Python data ingestion and GitHub Pages-ready static site
+Thunderhead is a free, interactive lightning activity map powered by observations from NOAA's GOES weather satellites. Explore recent lightning activity across the Americas, discover where storms are most active, and watch their patterns change as new observations arrive.
 
-## Publish
-1. In **Settings → Pages**, choose **Deploy from a branch**, branch `main`, folder `/(root)`, then save.
-2. Upload `.github/workflows/update-lightning.yml` from the starter bundle if it is not present. GitHub restricts apps without workflow-writing permission from uploading workflow files.
-3. Under **Settings → Actions → General**, ensure the workflow has **Read and write permissions** so it can update the JSON dataset.
-4. Go to **Actions → Update NOAA lightning data → Run workflow**.
-5. Once the workflow has succeeded, the map will display NOAA observations when lightning is available.
+### [Explore Thunderhead →](https://dkaban.github.io/thunderhead/)
 
-## Local development
-`python -m http.server 8000` then open `http://localhost:8000`.
-To fetch fresh data locally: `pip install -r requirements.txt` and `python scripts/fetch_lightning.py`.
+## What's on the map?
 
-## Data caveats
-Data is from anonymous S3 NOAA GOES GLM-L2-LCFA buckets. Flash positions are approximate optical centroids, not confirmed cloud-to-ground strikes. Coverage deteriorates at high northern latitudes, including parts of Alberta. Scheduled Actions can be delayed. The current satellite-deduplication heuristic and counts are experimental. Do not use for safety or emergency decisions.
+- **Recent lightning activity** — Coloured markers show where satellites have detected flashes.
+- **More detail as you zoom** — See broader areas of activity from a distance, then explore smaller regions up close.
+- **Activity over time** — Switch between observations from the last 5, 15, or 60 minutes.
+- **Lightning counts** — View the number of detected flashes in each time window.
+- **Data freshness** — See when observations were last updated, with a warning when the feed is delayed.
 
-No API keys required. GitHub Pages and public-repo Actions can be used at no charge within service policies.
+### Reading the colours
 
-NOAA: https://www.ncei.noaa.gov/products/goes-r-geostationary-lightning-mapper
+| Colour | Age of observation |
+| --- | --- |
+| 🔵 Cyan | Less than 5 minutes |
+| 🟠 Amber | 5–15 minutes |
+| 🔴 Pink | 15–60 minutes |
+
+Markers represent **approximate areas of lightning activity**, not precise points where lightning struck the ground. Nearby observations may be combined to keep the map easy to explore.
+
+## Where does the data come from?
+
+Thunderhead uses observations from NOAA's **Geostationary Lightning Mapper (GLM)** instruments aboard the GOES weather satellites. These instruments detect flashes of light associated with lightning, including lightning within clouds and lightning that may reach the ground.
+
+Satellite data gives a useful picture of storm activity, but it does **not** identify which individual flashes struck the ground. Detection and coverage can be less reliable near the edges of the satellite viewing area, especially farther north. Updates may also be delayed.
+
+Learn more about [NOAA's GOES Lightning Mapper](https://www.ncei.noaa.gov/products/goes-r-geostationary-lightning-mapper).
+
+---
+
+**Thunderhead is an exploratory weather visualization, not a lightning safety or emergency-alert service.** For safety decisions, follow official weather alerts and local authorities.
+
+*Thunderhead is an independent project and is not affiliated with or endorsed by NOAA.*
