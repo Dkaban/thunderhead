@@ -101,10 +101,16 @@ def main():
         lat_cell = int(flash["lat"] // cell_size)
         lon_cell = int(flash["lon"] // cell_size)
         key = (lat_cell, lon_cell, minute)
-        bins[key] = bins.get(key, 0) + 1
+        if key not in bins:
+            bins[key] = [0.0, 0.0, 0]
+        item = bins[key]
+        item[0] += flash["lat"]
+        item[1] += flash["lon"]
+        item[2] += 1
     cells = [
-        [round((la + 0.5) * cell_size, 3), round((lo + 0.5) * cell_size, 3), minute, count]
-        for (la, lo, minute), count in sorted(bins.items())
+        [round(item[0] / item[2], 4),
+         round(item[1] / item[2], 4), minute, item[2]]
+        for (_, _, minute), item in sorted(bins.items())
     ]
     OUTPUT.write_text(json.dumps({
         "generated_at": NOW.isoformat().replace("+00:00", "Z"),
