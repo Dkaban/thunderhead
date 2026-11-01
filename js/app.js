@@ -2,6 +2,18 @@
   const $ = id => document.getElementById(id);
   const status = $('status');
   const dataAlert = $('data-alert');
+  const activityPanel = $('activity-panel');
+  const detailsToggle = $('details-toggle');
+  if (activityPanel && detailsToggle) {
+    detailsToggle.addEventListener('click', () => {
+      const expanded = activityPanel.dataset.expanded !== 'true';
+      activityPanel.dataset.expanded = String(expanded);
+      detailsToggle.setAttribute('aria-expanded', String(expanded));
+      $('details-toggle-text').textContent = expanded ? 'Close' : 'Details';
+      if (expanded) activityPanel.scrollTop = 0;
+    });
+  }
+
   const map = new maplibregl.Map({
     container: 'map',
     style: 'https://tiles.openfreemap.org/styles/dark',
