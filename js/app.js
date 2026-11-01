@@ -24,12 +24,14 @@
   let selectedMinutes = 60;
   let version = '';
   let loaded = false;
-  let activity = [];
+  // Four spatial resolutions, precomputed only when the dataset/time window changes.
+  // Moving the map only redraws the already-aggregated cells, keeping mobile smooth.
+  const DETAIL_LEVELS = [1.5, 0.5, 0.24, 0.12];
+  let activityByGrid = new Map();
   let viewportPoints = [];
   let scheduled = false;
   let lastMinute = -1;
   const GRID = 0.12;
-  const DISPLAY_GRID = 0.5;
 
   function compactLegacy(flashes) {
     const bins = new Map();
@@ -54,8 +56,9 @@
     const now = Math.floor(Date.now() / 60000);
     lastMinute = now;
     const totals = {5: 0, 15: 0, 60: 0};
-    const bins = new Map();
+    const levelBins = new Map(DETAIL_LEVELS.map(grid => [grid, new Map()]));
 
+    // Walk the compact NOAA data only once per update (not on every pan/zoom).
     for (const [lat, lon, minute, count] of cells) {
       const age = now - minute;
       if (age < 0 || age >= 60) continue;
@@ -64,22 +67,28 @@
       totals[60] += count;
       if (age >= selectedMinutes) continue;
 
-      const la = Math.floor(lat / DISPLAY_GRID);
-      const lo = Math.floor(lon / DISPLAY_GRID);
-      const key = la + ':' + lo;
-      let bin = bins.get(key);
-      if (!bin) {
-        bin = {lat:(la + 0.5) * DISPLAY_GRID, lon:(lo + 0.5) * DISPLAY_GRID,
-               count:0, latest:minute};
-        bins.set(key, bin);
+      for (const grid of DETAIL_LEVELS) {
+        const la = Math.floor(lat / grid);
+        const lo = Math.floor(lon / grid);
+        const key = la + ':' + lo;
+        const bins = levelBins.get(grid);
+        let bin = bins.get(key);
+        if (!bin) {
+          bin = {lat:(la + 0.5) * grid, lon:(lo + 0.5) * grid,
+                 count:0, latest:minute};
+          bins.set(key, bin);
+        }
+        bin.count += count;
+        bin.latest = Math.max(bin.latest, minute);
       }
-      bin.count += count;
-      bin.latest = Math.max(bin.latest, minute);
     }
 
-    activity = Array.from(bins.values(), item => ({
-      ...item, age: now - item.latest
-    }));
+    activityByGrid = new Map(DETAIL_LEVELS.map(grid => [
+      grid,
+      Array.from(levelBins.get(grid).values(), item => ({
+        ...item, age: now - item.latest
+      }))
+    ]));
     for (const n of [5, 15, 60]) {
       $('count' + n).textContent = totals[n].toLocaleString();
     }
@@ -114,7 +123,20 @@
     viewportPoints = [];
     const zoom = map.getZoom();
 
+    const grid = zoom >= 9 ? 0.12 : zoom >= 7 ? 0.24 : zoom >= 5 ? 0.5 : 1.5;
+    const activity = activityByGrid.get(grid) || [];
+    const bounds = map.getBounds();
+    const south = bounds.getSouth() - grid;
+    const north = bounds.getNorth() + grid;
+    // Longitude filtering is only needed in the standard [-180, 180] view.
+    // When panning across the date line, let screen coordinates handle wrapping.
+    const west = bounds.getWest() - grid;
+    const east = bounds.getEast() + grid;
+    const standardLongitude = west >= -180 && east <= 180;
+
     for (const item of activity) {
+      if (item.lat < south || item.lat > north) continue;
+      if (standardLongitude && (item.lon < west || item.lon > east)) continue;
       // Avoid sending 10s of thousands of positions through MapLibre's worker.
       // Project only the already-aggregated geographic activity areas.
       const p = map.project([item.lon, item.lat]);
@@ -132,8 +154,9 @@
 
     if (loaded) {
       const updated = generated ? new Date(generated).toLocaleString() : 'Unknown';
+      const detail = grid === 1.5 ? 'Regional' : grid === 0.5 ? 'Local' : grid === 0.24 ? 'Detailed' : 'High detail';
       $('updated').textContent = 'NOAA data: ' + updated +
-        ' · ' + viewportPoints.length.toLocaleString() + ' visible activity areas';
+        ' · ' + viewportPoints.length.toLocaleString() + ' visible areas · ' + detail + ' view';
     }
   }
 
