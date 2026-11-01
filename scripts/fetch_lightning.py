@@ -92,33 +92,57 @@ def main():
             seen.add(k)
             unique.append({"lat":flash["lat"],"lon":flash["lon"],"time":flash["time"]})
     OUTPUT.parent.mkdir(parents=True,exist_ok=True)
-    # Render aggregated cells rather than individual flashes.
-    cell_size = 0.12
-    bins = {}
+    # Exact total per minute for accurate dashboard totals; never infer
+    # totals from the thinned visualization sample.
+    counts = {}
+    # Retain original measured centroids for the map. Keep at most 12000
+    # observations, evenly spread across time buckets and geographic regions.
+    groups = {}
     for flash in unique:
         timestamp = datetime.fromisoformat(flash["time"].replace("Z", "+00:00"))
         minute = int(timestamp.timestamp()) // 60
-        lat_cell = int(flash["lat"] // cell_size)
-        lon_cell = int(flash["lon"] // cell_size)
-        key = (lat_cell, lon_cell, minute)
-        if key not in bins:
-            bins[key] = [0.0, 0.0, 0]
-        item = bins[key]
-        item[0] += flash["lat"]
-        item[1] += flash["lon"]
-        item[2] += 1
-    cells = [
-        [round(item[0] / item[2], 4),
-         round(item[1] / item[2], 4), minute, item[2]]
-        for (_, _, minute), item in sorted(bins.items())
-    ]
+        counts[minute] = counts.get(minute, 0) + 1
+        lat, lon = flash["lat"], flash["lon"]
+        key = (minute, int(lat // 3), int(lon // 3))
+        groups.setdefault(key, []).append([lat, lon, minute])
+
+    # Fair per-region sampling, avoiding both global hotspots monopolizing
+    # all samples and artificial grid-center marker coordinates.
+    max_samples = 12000
+    samples = []
+    keys = sorted(groups)
+    budget = max(1, max_samples // max(1, len(keys)))
+    remaining = []
+    for key in keys:
+        group = groups[key]
+        if len(group) <= budget:
+            samples.extend(group)
+        else:
+            stride = len(group) / budget
+            samples.extend(group[int((i + 0.5) * stride)] for i in range(budget))
+            remaining.append(group)
+    if len(samples) < max_samples and remaining:
+        capacity = max_samples - len(samples)
+        extras = []
+        for group in remaining:
+            step = max(1, len(group) // max(1, capacity // len(remaining)))
+            extras.extend(group[::step])
+        if extras:
+            stride = max(1, len(extras) / capacity)
+            samples.extend(extras[int(i * stride)] for i in range(min(capacity, len(extras))))
+    if len(samples) > max_samples:
+        step = len(samples) / max_samples
+        samples = [samples[int(i * step)] for i in range(max_samples)]
+
     OUTPUT.write_text(json.dumps({
         "generated_at": NOW.isoformat().replace("+00:00", "Z"),
         "source": "NOAA GOES-18/19 GLM-L2-LCFA",
-        "cell_size_deg": cell_size,
-        "cells": cells
+        "counts": sorted([[m, n] for m, n in counts.items()]),
+        "samples": [[round(p[0], 4), round(p[1], 4), p[2]] for p in samples],
+        "sampled": True,
+        "sampling_note": "Display sample only; minute counts retain full dataset"
     }, separators=(",", ":")))
-    logging.info("Saved %d flashes in %d compact cells", len(unique), len(cells))
+    logging.info("Saved %d total flashes and %d display samples", len(unique), len(samples))
 
 
 if __name__=="__main__":
